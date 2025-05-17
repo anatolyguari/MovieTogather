@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        body {
+            background-color: #0f0f0f;
+            color: #ffffff;
+            font-family: 'Roboto', sans-serif;
+        }
+
+        #remoteVideo,
+        #localVideo {
+            width: 100%;
+            height: auto;
+            background: #000;
+        }
+
+        @keyframes fakeProgress {
+            0% {
+                width: 50%;
+            }
+
+            80% {
+                width: 80%;
+            }
+
+            100% {
+                width: 90%;
+            }
+        }
+
+        .animate-fake-progress {
+            animation: fakeProgress 1000s linear infinite;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 50;
+        }
+
+        .modal-content {
+            background: #212121;
+            margin: 10% auto;
+            padding: 20px;
+            width: 90%;
+            max-width: 400px;
+            border-radius: 8px;
+        }
+
+        .comments-panel {
+            display: none;
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 380px;
+            height: 100%;
+            background: rgba(33, 33, 33, 0.95);
+            z-index: 40;
+            transition: transform 0.3s ease;
+            transform: translateX(100%);
+            overflow-y: auto;
+        }
+
+        .comments-panel.open {
+            transform: translateX(0);
+        }
+
+        .fullscreen-video {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 30;
+            background: #000;
+        }
+
+        .fullscreen-video video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .fullscreen-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 30px;
+            display: flex;
+            gap: 15px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .fullscreen-video:hover .fullscreen-controls {
+            opacity: 1;
+        }
+
+        .comment-item {
+            border-bottom: 1px solid #303030;
+            padding: 10px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .video-item {
+            transition: background-color 0.2s ease;
+        }
+
+        .video-item:hover {
+            background-color: #272727;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .control-btn {
+            transition: background-color 0.2s ease;
+        }
+
+        .control-btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <!-- YouTube-like Header -->
+    <header class="bg-[#212121] px-4 py-2 flex items-center justify-between sticky top-0 z-10 shadow-md">
+        <!-- Left: Menu & Logo -->
+        <div class="flex items-center space-x-4">
+            <button class="text-white hover:text-gray-300 p-2 rounded-full hover:bg-[#3e3e3e]">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z" />
+                </svg>
+            </button>
+            <a href="/" class="flex items-center space-x-2">
+                <img src="https://www.youtube.com/favicon.ico" alt="YouTube Logo" class="w-8 h-8">
+                <span class="text-white text-xl font-semibold hidden md:block">YouTube</span>
+            </a>
+        </div>
+
+        <!-- Center: Search Bar -->
+        <div class="flex-grow max-w-2xl mx-4">
+            <div class="flex items-center">
+                <input type="text" placeholder="Search"
+                    class="flex-grow bg-[#121212] border border-[#303030] rounded-l-full text-white placeholder-gray-400 px-4 py-2 focus:outline-none">
+                <button
+                    class="bg-[#303030] hover:bg-[#3e3e3e] border border-[#303030] border-l-0 rounded-r-full px-4 py-2">
+                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path
+                            d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16a6.471 6.471 0 004.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zM10 14a4 4 0 110-8 4 4 0 010 8z" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Right: Action Icons -->
+        <!-- Right: Action Icons -->
+        <div class="flex items-center space-x-4">
+            <!-- Auto-Refresh Toggle -->
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="autoRefreshToggle" class="sr-only peer">
+                <div
+                    class="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-red-600">
+                </div>
+                <span
+                    class="absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-all peer-checked:translate-x-5"></span>
+                <span class="ml-2 text-sm text-gray-400 hidden md:block">Auto-Refresh</span>
+            </label>
+            <button class="text-white hover:text-gray-300 p-2 rounded-full hover:bg-[#3e3e3e]">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
+                </svg>
+            </button>
+            <button class="text-white hover:text-gray-300 p-2 rounded-full hover:bg-[#3e3e3e]">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path
+                        d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                </svg>
+            </button>
+            <button class="text-white hover:text-gray-300 p-2 rounded-full hover:bg-[#3e3e3e]">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M19 3H5c-1.1 0-2 .9-2 2v14l4-4h12c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
+                </svg>
+            </button>
+            <button class="text-white hover:text-gray-300 p-1 rounded-full hover:bg-[#3e3e3e]">
+                <img src="https://yt3.ggpht.com/ytc/AIdro_kLJ7-qmHCEDNy_Qty7ej-lJCEso_i-bTgYcg3sCEM=s48-c-k-c0x00ffffff-no-rj"
+                    alt="User" class="w-8 h-8 rounded-full">
+            </button>
+        </div>
+    </header>
+
+
+
+    <!-- Main Content -->
+    <div class="flex flex-col md:flex-row max-w-[1920px] mx-auto">
+        <!-- Video Player Section -->
+        <div class="flex-grow p-4">
+            <div class="relative" id="videoContainer">
+                <video id="remoteVideo" autoplay class="w-full aspect-video bg-black rounded-lg shadow-lg"></video>
+                <video id="localVideo" autoplay muted class="hidden"></video>
+
+                <div
+                    class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4 flex justify-between items-center">
+                    <div class="flex space-x-4">
+                        <button id="playPauseBtn" class="text-white control-btn p-2 rounded-full">
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button id="volumeBtn" class="text-white control-btn p-2 rounded-full">
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                <path
+                                    d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
+                            </svg>
+                        </button>
+
+                        <button id="commentBtn" class="text-white control-btn p-2 rounded-full">
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                <path
+                                    d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z" />
+                            </svg>
+                        </button>
+                        <button id="fullscreenBtn" class="text-white control-btn p-2 rounded-full">
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                <path
+                                    d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Fake Progress Bar under Video -->
+                <div
+                    class="absolute bottom-0 left-0 right-0 h-0.5 bg-[#303030] hover:bg-[#4d0000] transition-colors duration-300">
+                    <div
+                        class="h-full bg-[#ff0000] animate-fake-progress transition-all duration-300 hover:bg-[#ff4c4c] hover:h-1.5">
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <h2 class="text-xl font-bold">Movie Night</h2>
+                <p class="text-gray-400">Shared by You • Watching now</p>
+            </div>
+            <div class="mt-4 border-t border-[#303030] pt-4">
+                <button id="roomControlsBtn" class="text-red-600 hover:text-red-500 font-medium">Room Settings</button>
+                <p id="roomStatus" class="text-gray-400 mt-2">Not connected to a room</p>
+            </div>
+            <div class="mt-4 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <img src="https://yt3.ggpht.com/K2ecE5j90a_DFzugHo0bW98vFlIQ1JJgs9mbcav7RGy1t7adJRnd2jaIv-oc6XzTRvDdWlFCAfc=s48-c-k-c0x00ffffff-no-rj"
+                        alt="Channel Avatar" class="w-10 h-10 rounded-full">
+                    <div>
+                        <p class="text-white font-medium">7clouds</p>
+                        <p class="text-gray-400 text-sm">1.2M subscribers</p>
+                    </div>
+                </div>
+                <button class="bg-red-600 text-white px-4 py-2 rounded-full hover:bg-red-500 font-medium">
+                    Subscribe
+                </button>
+            </div>
+
+            <!-- Comment Section (Desktop View) -->
+            <div class="mt-6">
+                <h3 class="text-lg font-medium mb-4">Comments</h3>
+                <div class="flex space-x-3">
+                    <div class="rounded-full bg-gray-600 w-10 h-10 flex items-center justify-center text-lg">
+                        <span id="userInitial"></span>
+                    </div>
+                    <div class="flex-grow">
+                        <input id="commentInput" type="text" placeholder="Add a comment..."
+                            class="w-full bg-transparent border-b border-[#303030] py-2 text-white focus:outline-none focus:border-blue-500">
+                        <div class="flex justify-end mt-2 space-x-2">
+                            <button id="cancelCommentBtn"
+                                class="px-3 py-1 text-sm text-gray-400 hover:text-white">Cancel</button>
+                            <button id="sendCommentBtn"
+                                class="px-3 py-1 text-sm bg-blue-600 rounded-full hover:bg-blue-500">Comment</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="commentsContainer" class="mt-6 space-y-4">
+                    <!-- Comments will be added here dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar (Recommended Videos) -->
+        <div class="w-full md:w-96 p-4 space-y-4">
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+
+                <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">Rick Astley - Never Gonna Give You Up</h3>
+                        <p class="text-xs text-gray-400">Rick Astley • 1.2B views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                <a href="https://www.youtube.com/watch?v=9bZkp7q19f0" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">PSY - GANGNAM STYLE (강남스타일)</h3>
+                        <p class="text-xs text-gray-400">PSY • 4.6B views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                <a href="https://www.youtube.com/watch?v=YR5ApYxkU-U" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/YR5ApYxkU-U/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">Sum 41 - In Too Deep</h3>
+                        <p class="text-xs text-gray-400">Sum 41 • 180M views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                <a href="https://www.youtube.com/watch?v=fJ9rUzIMcZQ" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">Queen - Bohemian Rhapsody</h3>
+                        <p class="text-xs text-gray-400">Queen Official • 1.7B views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                <a href="https://www.youtube.com/watch?v=6Ejga4kJUts" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/6Ejga4kJUts/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">The Cranberries - Zombie</h3>
+                        <p class="text-xs text-gray-400">The Cranberries • 1.1B views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                <a href="https://www.youtube.com/watch?v=OPf0YbXqDm0" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/OPf0YbXqDm0/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">Mark Ronson - Uptown Funk ft. Bruno Mars</h3>
+                        <p class="text-xs text-gray-400">Mark Ronson • 4.9B views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                <a href="https://www.youtube.com/watch?v=JGwWNGJdvx8" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/JGwWNGJdvx8/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">Ed Sheeran - Shape of You</h3>
+                        <p class="text-xs text-gray-400">Ed Sheeran • 6.1B views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                <a href="https://www.youtube.com/watch?v=kJQP7kiw5Fk" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">Luis Fonsi - Despacito ft. Daddy Yankee</h3>
+                        <p class="text-xs text-gray-400">Luis Fonsi • 8.3B views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                <a href="https://www.youtube.com/watch?v=2Vv-BfVoq4g" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/2Vv-BfVoq4g/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">Adele - Hello</h3>
+                        <p class="text-xs text-gray-400">Adele • 3.2B views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                <a href="https://www.youtube.com/watch?v=RBumgq5yVrA" target="_blank"
+                    class="flex items-center space-x-2 p-2 rounded cursor-pointer video-item">
+                    <img src="https://i.ytimg.com/vi/RBumgq5yVrA/hqdefault.jpg" alt="Thumbnail"
+                        class="w-32 h-18 object-cover rounded">
+                    <div>
+                        <h3 class="text-sm font-medium">Passenger - Let Her Go</h3>
+                        <p class="text-xs text-gray-400">Passenger • 3.6B views • Official Music Video</p>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fullscreen View -->
+    <div id="fullscreenView" class="fullscreen-video hidden">
+        <video id="fsVideo" autoplay class="w-full h-full"></video>
+        <div class="fullscreen-controls">
+            <button id="fsPlayPauseBtn" class="text-white p-2 hover:bg-gray-700 rounded-full"><svg class="w-6 h-6"
+                    fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                </svg></button>
+            <button id="fsVolumeBtn" class="text-white p-2 hover:bg-gray-700 rounded-full"><svg class="w-6 h-6"
+                    fill="currentColor" viewBox="0 0 24 24">
+                    <path
+                        d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
+                </svg></button>
+            <button id="fsCommentBtn" class="text-white p-2 hover:bg-gray-700 rounded-full"><svg class="w-6 h-6"
+                    fill="currentColor" viewBox="0 0 24 24">
+                    <path
+                        d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z" />
+                </svg></button>
+            <button id="exitFullscreenBtn" class="text-white p-2 hover:bg-gray-700 rounded-full"><svg class="w-6 h-6"
+                    fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
+                </svg></button>
+        </div>
+    </div>
+
+    <!-- Overlay Comments Panel -->
+    <div id="commentsPanel" class="comments-panel">
+        <div class="p-4 border-b border-[#303030] flex justify-between items-center">
+            <h3 class="text-lg font-medium">Live Chat</h3>
+            <button id="closeCommentsBtn" class="text-gray-400 hover:text-white"><svg class="w-6 h-6"
+                    fill="currentColor" viewBox="0 0 24 24">
+                    <path
+                        d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                </svg></button>
+        </div>
+        <div id="liveCommentsContainer" class="p-4 space-y-4 max-h-[calc(100%-130px)] overflow-y-auto">
+            <!-- Live comments will be added here dynamically -->
+        </div>
+        <div class="absolute bottom-0 left-0 right-0 p-4 bg-[#212121] border-t border-[#303030]">
+            <div class="flex space-x-2">
+                <input id="liveChatInput" type="text" placeholder="Chat message..."
+                    class="flex-grow bg-[#121212] border border-[#303030] rounded-full px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button id="sendChatBtn"
+                    class="bg-blue-600 text-white px-4 rounded-full hover:bg-blue-500">Send</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Room Controls Modal -->
+    <div id="roomModal" class="modal">
+        <div class="modal-content">
+            <h2 class="text-xl font-bold mb-4">Room Settings</h2>
+            <div class="space-y-4">
+                <button id="createRoomBtn"
+                    class="w-full bg-red-600 hover:bg-red-500 text-white py-2 rounded transition-colors">Create New
+                    Room</button>
+                <div>
+                    <input id="roomIdInput" type="text" placeholder="Enter Room ID"
+                        class="w-full bg-[#121212] border border-[#303030] rounded px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button id="joinRoomBtn"
+                        class="w-full bg-red-600 hover:bg-red-500 text-white py-2 rounded mt-2 transition-colors">Join
+                        Room</button>
+                </div>
+                <button id="leaveRoomBtn"
+                    class="w-full bg-gray-600 hover:bg-gray-500 text-white py-2 rounded transition-colors">Leave
+                    Room</button>
+                <div class="flex space-x-2">
+                    <button id="startShareBtn"
+                        class="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded transition-colors">Start
+                        Sharing</button>
+                    <button id="stopShareBtn"
+                        class="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-2 rounded transition-colors">Stop
+                        Sharing</button>
+                </div>
+                <label class="flex items-center space-x-2">
+                    <input id="audioCheckbox" type="checkbox" class="text-red-600 focus:ring-red-500">
+                    <span>Share system audio</span>
+                </label>
+            </div>
+            <button id="closeModalBtn" class="mt-4 text-gray-400 hover:text-white">Close</button>
+        </div>
+    </div>
+    <div id="floatingChat"
+        class="fixed right-0 top-1/4 w-64 bg-[#212121] border-l border-t border-b border-[#303030] rounded-l-lg shadow-lg z-40 hidden">
+        <div class="p-2 border-b border-[#303030] flex justify-between items-center">
+            <h3 class="text-sm font-medium">Live Chat</h3>
+            <button id="closeFloatingChatBtn" class="text-gray-400 hover:text-white">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path
+                        d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                </svg>
+            </button>
+        </div>
+        <div id="floatingChatContainer" class="p-2 space-y-2 max-h-64 overflow-y-auto">
+            <!-- Chat messages will be mirrored here -->
+        </div>
+        <div class="p-2 border-t border-[#303030]">
+            <div class="flex space-x-1">
+                <input id="floatingChatInput" type="text" placeholder="Chat..."
+                    class="flex-grow bg-[#121212] border border-[#303030] rounded-full px-2 py-1 text-white text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                <button id="sendFloatingChatBtn"
+                    class="bg-blue-600 text-white text-xs px-2 rounded-full hover:bg-blue-500">Send</button>
+            </div>
+        </div>
+    </div>
+    <!-- Footer -->
+    <footer class="bg-[#212121] p-4 text-center text-gray-400 mt-8">
+        YouTube © 2025
+    </footer>
+
+    <script>
+        const socket = io();
+        let peerConnection;
+        let localStream;
+        const configuration = {
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        };
+        const floatingChat = document.getElementById('floatingChat');
+        const fsCommentBtn = document.getElementById('fsCommentBtn');
+        const closeFloatingChatBtn = document.getElementById('closeFloatingChatBtn');
+        const floatingChatContainer = document.getElementById('floatingChatContainer');
+        const floatingChatInput = document.getElementById('floatingChatInput');
+        const sendFloatingChatBtn = document.getElementById('sendFloatingChatBtn');
+        // Modal handling
+        const roomModal = document.getElementById('roomModal');
+        const roomControlsBtn = document.getElementById('roomControlsBtn');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const roomStatus = document.getElementById('roomStatus');
+        const roomIdInput = document.getElementById('roomIdInput');
+
+        // Fullscreen handling
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const fullscreenView = document.getElementById('fullscreenView');
+        const fsVideo = document.getElementById('fsVideo');
+        const exitFullscreenBtn = document.getElementById('exitFullscreenBtn');
+        const fsPlayPauseBtn = document.getElementById('fsPlayPauseBtn');
+        const fsVolumeBtn = document.getElementById('fsVolumeBtn');
+
+        //}
+        // Comments panel
+        const commentsPanel = document.getElementById('commentsPanel');
+        const commentBtn = document.getElementById('commentBtn');
+        const closeCommentsBtn = document.getElementById('closeCommentsBtn');
+        const commentsContainer = document.getElementById('commentsContainer');
+        const liveCommentsContainer = document.getElementById('liveCommentsContainer');
+        const commentInput = document.getElementById('commentInput');
+        const liveChatInput = document.getElementById('liveChatInput');
+        const sendCommentBtn = document.getElementById('sendCommentBtn');
+        const sendChatBtn = document.getElementById('sendChatBtn');
+        const cancelCommentBtn = document.getElementById('cancelCommentBtn');
+
+
+        // Show/hide floating chat
+        fsCommentBtn.addEventListener('click', () => {
+            floatingChat.classList.toggle('hidden');
+            // Sync chat messages
+            syncChatMessages();
+        });
+
+        closeFloatingChatBtn.addEventListener('click', () => {
+            floatingChat.classList.add('hidden');
+        });
+
+        // Function to mirror chat messages from the regular comments panel
+        function syncChatMessages() {
+            // Clear current content
+            floatingChatContainer.innerHTML = '';
+
+            // Copy all messages from live comments container
+            const chatMessages = liveCommentsContainer.querySelectorAll('.comment-item');
+            chatMessages.forEach(message => {
+                const clone = message.cloneNode(true);
+                // Make the cloned messages more compact for the floating chat
+                const userEl = clone.querySelector('.rounded-full');
+                if (userEl) userEl.classList.replace('w-8', 'w-6');
+                if (userEl) userEl.classList.replace('h-8', 'h-6');
+
+                // Make text smaller
+                const textElements = clone.querySelectorAll('p');
+                textElements.forEach(el => {
+                    el.classList.replace('text-sm', 'text-xs');
+                });
+
+                floatingChatContainer.appendChild(clone);
+            });
+
+            // Scroll to bottom
+            floatingChatContainer.scrollTop = floatingChatContainer.scrollHeight;
+        }
+
+        // Send message from floating chat
+        sendFloatingChatBtn.addEventListener('click', () => {
+            const text = floatingChatInput.value.trim();
+            if (text) {
+                addComment(username, text, true);
+                socket.emit('comment', {
+                    roomId: roomIdInput.value.trim(),
+                    username: username,
+                    message: text
+                });
+                floatingChatInput.value = '';
+                // Sync the chats immediately
+                syncChatMessages();
+            }
+        });
+
+        // Allow Enter key to send message
+        floatingChatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendFloatingChatBtn.click();
+            }
+        });
+
+        // Update the addComment function to sync chats
+        const originalAddComment = addComment;
+        addComment = function (username, text, isLive = false) {
+            originalAddComment(username, text, isLive);
+            if (isLive && !floatingChat.classList.contains('hidden')) {
+                syncChatMessages();
+            }
+        };
+
+
+        // Video controls
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const volumeBtn = document.getElementById('volumeBtn');
+        const remoteVideo = document.getElementById('remoteVideo');
+
+        // Username for chat
+        const usernames = ['ViewMaster', 'ScreenSharer', 'MovieBuff', 'FilmFan', 'VideoViewer', 'StreamLover', 'MediaMaven'];
+        const username = usernames[Math.floor(Math.random() * usernames.length)] + Math.floor(Math.random() * 1000);
+        document.getElementById('userInitial').textContent = username.charAt(0).toUpperCase();
+
+        // Room modal handling
+        roomControlsBtn.addEventListener('click', () => {
+            roomModal.style.display = 'block';
+        });
+        closeModalBtn.addEventListener('click', () => {
+            roomModal.style.display = 'none';
+        });
+
+        // Fullscreen handling
+        fullscreenBtn.addEventListener('click', () => {
+            fullscreenView.classList.remove('hidden');
+            if (remoteVideo.srcObject) {
+                fsVideo.srcObject = remoteVideo.srcObject;
+                fsVideo.play().catch(err => console.error('Error playing fullscreen video:', err));
+            }
+        });
+
+        exitFullscreenBtn.addEventListener('click', () => {
+            fullscreenView.classList.add('hidden');
+            commentsPanel.classList.remove('open');
+            fsVideo.pause();
+        });
+
+        // Comment panel handling
+        commentBtn.addEventListener('click', () => {
+            commentsPanel.classList.add('open');
+        });
+
+        closeCommentsBtn.addEventListener('click', () => {
+            commentsPanel.classList.remove('open');
+        });
+
+        // Video controls handling
+        let isPlaying = true;
+        let isMuted = false;
+
+        function updatePlayPauseIcon(btn, playing) {
+            btn.innerHTML = playing
+                ? `<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`
+                : `<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h4v12H6zm8 0h4v12h-4z"/></svg>`;
+        }
+
+        playPauseBtn.addEventListener('click', () => {
+            isPlaying = !isPlaying;
+            if (isPlaying) {
+                remoteVideo.play().catch(err => console.error('Error playing video:', err));
+            } else {
+                remoteVideo.pause();
+            }
+            updatePlayPauseIcon(playPauseBtn, isPlaying);
+            updatePlayPauseIcon(fsPlayPauseBtn, isPlaying);
+        });
+
+        fsPlayPauseBtn.addEventListener('click', () => {
+            isPlaying = !isPlaying;
+            if (isPlaying) {
+                fsVideo.play().catch(err => console.error('Error playing fullscreen video:', err));
+            } else {
+                fsVideo.pause();
+            }
+            updatePlayPauseIcon(playPauseBtn, isPlaying);
+            updatePlayPauseIcon(fsPlayPauseBtn, isPlaying);
+        });
+
+        volumeBtn.addEventListener('click', () => {
+            isMuted = !isMuted;
+            remoteVideo.muted = isMuted;
+            volumeBtn.innerHTML = isMuted
+                ? `<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>`
+                : `<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`;
+            fsVolumeBtn.innerHTML = volumeBtn.innerHTML;
+        });
+
+        fsVolumeBtn.addEventListener('click', () => {
+            isMuted = !isMuted;
+            fsVideo.muted = isMuted;
+            fsVolumeBtn.innerHTML = isMuted
+                ? `<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>`
+                : `<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`;
+            volumeBtn.innerHTML = fsVolumeBtn.innerHTML;
+        });
+
+        // Comment functionality
+        function addComment(username, text, isLive = false) {
+            const commentElem = document.createElement('div');
+            commentElem.className = 'comment-item';
+            commentElem.innerHTML = `
+                <div class="flex space-x-3">
+                    <div class="rounded-full bg-gray-600 w-8 h-8 flex items-center justify-center text-sm flex-shrink-0">
+                        ${username.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                        <p class="text-sm font-medium">${username} <span class="text-gray-400 text-xs">just now</span></p>
+                        <p class="text-sm">${text}</p>
+                    </div>
+                </div>
+            `;
+            if (isLive) {
+                liveCommentsContainer.appendChild(commentElem);
+                liveCommentsContainer.scrollTop = liveCommentsContainer.scrollHeight;
+            } else {
+                commentsContainer.appendChild(commentElem);
+            }
+        }
+
+        // Send comment handlers
+        sendCommentBtn.addEventListener('click', () => {
+            const text = commentInput.value.trim();
+            if (text) {
+                addComment(username, text);
+                socket.emit('comment', {
+                    roomId: roomIdInput.value.trim(),
+                    username: username,
+                    message: text
+                });
+                commentInput.value = '';
+            }
+        });
+
+        sendChatBtn.addEventListener('click', () => {
+            const text = liveChatInput.value.trim();
+            if (text) {
+                addComment(username, text, true);
+                socket.emit('comment', {
+                    roomId: roomIdInput.value.trim(),
+                    username: username,
+                    message: text
+                });
+                liveChatInput.value = '';
+            }
+        });
+
+        cancelCommentBtn.addEventListener('click', () => {
+            commentInput.value = '';
+        });
+
+        // Add "Enter" key support for chat
+        liveChatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendChatBtn.click();
+            }
+        });
+
+        commentInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendCommentBtn.click();
+            }
+        });
+
+        // Room controls
+        const createRoomBtn = document.getElementById('createRoomBtn');
+        const joinRoomBtn = document.getElementById('joinRoomBtn');
+        const leaveRoomBtn = document.getElementById('leaveRoomBtn');
+
+        createRoomBtn.addEventListener('click', async () => {
+            try {
+                // Start screen sharing first
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: true,
+                    audio: audioCheckbox.checked
+                });
+                localVideo.srcObject = localStream;
+
+                // Then create room
+                const roomId = Math.random().toString(36).substring(2, 8);
+                socket.emit('create_room', { roomId });
+
+                // Add comment about sharing
+                addComment('System', 'You started sharing your screen', true);
+            } catch (err) {
+                console.error('Error sharing screen:', err);
+                alert('Screen sharing is required to create a room. Please enable screen sharing and try again.');
+            }
+        });
+
+        // 3. Enable system audio by default
+        // Add this line near the beginning of your script, with the other element selections
+        document.addEventListener('DOMContentLoaded', () => {
+            audioCheckbox.checked = true;
+        });
+
+        joinRoomBtn.addEventListener('click', () => {
+            const roomId = roomIdInput.value.trim();
+            if (roomId) {
+                socket.emit('join_room', { roomId });
+            } else {
+                alert('Please enter a Room ID');
+            }
+        });
+
+        leaveRoomBtn.addEventListener('click', () => {
+            const roomId = roomIdInput.value.trim();
+            if (roomId) {
+                socket.emit('leave_room', { roomId });
+                cleanupPeerConnection();
+            }
+        });
+
+        // Socket.io event handlers
+        socket.on('room_created', (data) => {
+            roomStatus.textContent = `Connected to Room: ${data.roomId}`;
+            roomIdInput.value = data.roomId;
+            roomModal.style.display = 'none';
+            addComment('System', `Room created with ID: ${data.roomId}`, true);
+        });
+
+        socket.on('room_joined', (data) => {
+            roomStatus.textContent = `Connected to Room: ${data.roomId}`;
+            roomModal.style.display = 'none';
+            // Request active stream from existing peers
+            socket.emit('request_stream', { roomId: data.roomId });
+            addComment('System', `You joined room: ${data.roomId}`, true);
+        });
+
+        socket.on('room_left', () => {
+            roomStatus.textContent = 'Not connected to a room';
+            roomIdInput.value = '';
+            cleanupPeerConnection();
+            addComment('System', 'You left the room', true);
+        });
+
+        socket.on('error', (data) => {
+            alert(data.message);
+        });
+
+        socket.on('user_joined', (data) => {
+            console.log('User joined:', data.userId);
+            // If we are sharing, initiate a new offer
+            if (localStream) {
+                startPeerConnection();
+            }
+            addComment('System', 'Someone joined the room', true);
+        });
+
+        socket.on('user_left', (data) => {
+            addComment('System', 'Someone left the room', true);
+        });
+
+        socket.on('comment', (data) => {
+            if (data.username !== username) {
+                addComment(data.username, data.message);
+                addComment(data.username, data.message, true);
+            }
+        });
+
+        // Handle stream request from new peer
+        socket.on('request_stream', (data) => {
+            if (localStream) {
+                console.log('Received stream request, initiating offer');
+                startPeerConnection();
+            }
+        });
+
+        // Screen sharing controls
+        const startShareBtn = document.getElementById('startShareBtn');
+        const stopShareBtn = document.getElementById('stopShareBtn');
+        const audioCheckbox = document.getElementById('audioCheckbox');
+        const localVideo = document.getElementById('localVideo');
+
+        startShareBtn.addEventListener('click', async () => {
+            try {
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: true,
+                    audio: audioCheckbox.checked
+                });
+                localVideo.srcObject = localStream;
+                startPeerConnection();
+                addComment('System', 'You started sharing your screen', true);
+            } catch (err) {
+                console.error('Error sharing screen:', err);
+                alert('Failed to share screen. Ensure permissions are granted.');
+            }
+        });
+
+        stopShareBtn.addEventListener('click', () => {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+                localVideo.srcObject = null;
+                cleanupPeerConnection();
+                addComment('System', 'You stopped sharing your screen', true);
+            }
+        });
+
+        // WebRTC signaling
+        function startPeerConnection() {
+            if (!peerConnection) {
+                peerConnection = new RTCPeerConnection(configuration);
+
+                peerConnection.ontrack = (event) => {
+                    console.log('Received remote stream');
+                    remoteVideo.srcObject = event.streams[0];
+                    if (!fullscreenView.classList.contains('hidden')) {
+                        fsVideo.srcObject = event.streams[0];
+                        fsVideo.play().catch(err => console.error('Error playing fullscreen video:', err));
+                    }
+                };
+
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        socket.emit('candidate', {
+                            roomId: roomIdInput.value.trim(),
+                            candidate: event.candidate
+                        });
+                    }
+                };
+
+                peerConnection.oniceconnectionstatechange = () => {
+                    console.log('ICE connection state:', peerConnection.iceConnectionState);
+                    if (peerConnection.iceConnectionState === 'disconnected') {
+                        cleanupPeerConnection();
+                    }
+                };
+            }
+
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+            }
+
+            peerConnection.createOffer()
+                .then(offer => peerConnection.setLocalDescription(offer))
+                .then(() => {
+                    socket.emit('offer', {
+                        roomId: roomIdInput.value.trim(),
+                        sdp: peerConnection.localDescription
+                    });
+                })
+                .catch(err => console.error('Error creating offer:', err));
+        }
+
+        socket.on('offer', async (data) => {
+            if (!peerConnection) {
+                peerConnection = new RTCPeerConnection(configuration);
+                peerConnection.ontrack = (event) => {
+                    console.log('Received remote stream');
+                    remoteVideo.srcObject = event.streams[0];
+                    if (!fullscreenView.classList.contains('hidden')) {
+                        fsVideo.srcObject = event.streams[0];
+                        fsVideo.play().catch(err => console.error('Error playing fullscreen video:', err));
+                    }
+                };
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        socket.emit('candidate', {
+                            roomId: roomIdInput.value.trim(),
+                            candidate: event.candidate
+                        });
+                    }
+                };
+                peerConnection.oniceconnectionstatechange = () => {
+                    console.log('ICE connection state:', peerConnection.iceConnectionState);
+                    if (peerConnection.iceConnectionState === 'disconnected') {
+                        cleanupPeerConnection();
+                    }
+                };
+            }
+
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                socket.emit('answer', {
+                    roomId: roomIdInput.value.trim(),
+                    sdp: peerConnection.localDescription
+                });
+            } catch (err) {
+                console.error('Error handling offer:', err);
+            }
+        });
+
+        socket.on('answer', async (data) => {
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+            } catch (err) {
+                console.error('Error handling answer:', err);
+            }
+        });
+
+        socket.on('candidate', async (data) => {
+            try {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+            } catch (err) {
+                console.error('Error handling candidate:', err);
+            }
+        });
+
+        function cleanupPeerConnection() {
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            remoteVideo.srcObject = null;
+            fsVideo.srcObject = null;
+        }
+
+        // Add default comments
+        setTimeout(() => {
+            addComment('ViewMaster247', 'This movie is amazing!');
+            addComment('FilmFan123', 'Does anyone know when the next one is coming out?');
+            addComment('StreamLover999', 'The cinematography in this scene is incredible');
+            addComment('MovieBuff555', 'I love the soundtrack to this film');
+        }, 2000);
+        // Auto-Refresh Toggle
+        const autoRefreshToggle = document.getElementById('autoRefreshToggle');
+        let refreshInterval = null;
+
+        // Load toggle state from localStorage
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedState = localStorage.getItem('autoRefreshEnabled') === 'true';
+            autoRefreshToggle.checked = savedState;
+            if (savedState) {
+                startAutoRefresh();
+            }
+        });
+
+        // Toggle auto-refresh
+        autoRefreshToggle.addEventListener('change', () => {
+            if (autoRefreshToggle.checked) {
+                startAutoRefresh();
+                localStorage.setItem('autoRefreshEnabled', 'true');
+            } else {
+                stopAutoRefresh();
+                localStorage.setItem('autoRefreshEnabled', 'false');
+            }
+        });
+
+        // Start auto-refresh (every 5 minutes)
+        function startAutoRefresh() {
+            if (refreshInterval) clearInterval(refreshInterval); // Clear any existing interval
+            refreshInterval = setInterval(() => {
+                window.location.reload();
+            }, 240000); // 5 minutes = 300,000 ms
+        }
+
+        // Stop auto-refresh
+        function stopAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+
+        // Send ping every 4 minutes to keep connection alive
+        setInterval(() => {
+            socket.emit('ping');
+            console.log('Ping sent');
+        }, 240000); // 240,000 ms = 4 minutes
+
+        // Listen for pong from server
+        socket.on('pong', () => {
+            console.log('Pong received from server');
+        });
+        
+    </script>
+</body>
+
+</html>
