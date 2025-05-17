@@ -1125,7 +1125,57 @@
         socket.on('pong', () => {
             console.log('Pong received from server');
         });
-        
+        // Fullscreen handling with better mobile support
+fullscreenBtn.addEventListener('click', () => {
+    // First attempt native fullscreen API
+    if (remoteVideo.requestFullscreen) {
+        remoteVideo.requestFullscreen().then(() => {
+            console.log("Using native fullscreen API");
+        }).catch(err => {
+            console.log("Native fullscreen failed, using fallback:", err);
+            // Fallback to custom fullscreen view
+            fullscreenView.classList.remove('hidden');
+            if (remoteVideo.srcObject) {
+                fsVideo.srcObject = remoteVideo.srcObject;
+                fsVideo.play().catch(err => console.error('Error playing fullscreen video:', err));
+            }
+        });
+    } else if (remoteVideo.webkitRequestFullscreen) { // Safari
+        remoteVideo.webkitRequestFullscreen();
+    } else if (remoteVideo.mozRequestFullScreen) { // Firefox
+        remoteVideo.mozRequestFullScreen();
+    } else if (remoteVideo.msRequestFullscreen) { // IE/Edge
+        remoteVideo.msRequestFullscreen();
+    } else {
+        // If native API not available, use custom fullscreen view
+        fullscreenView.classList.remove('hidden');
+        if (remoteVideo.srcObject) {
+            fsVideo.srcObject = remoteVideo.srcObject;
+            fsVideo.play().catch(err => console.error('Error playing fullscreen video:', err));
+        }
+        // Add mobile-specific class for better styling
+        document.body.classList.add('fullscreen-mode');
+    }
+});
+
+exitFullscreenBtn.addEventListener('click', () => {
+    // First attempt to exit native fullscreen
+    if (document.exitFullscreen) {
+        document.exitFullscreen().catch(err => console.error("Error exiting fullscreen:", err));
+    } else if (document.webkitExitFullscreen) { // Safari
+        document.webkitExitFullscreen();
+    } else if (document.mozCancelFullScreen) { // Firefox
+        document.mozCancelFullScreen();
+    } else if (document.msExitFullscreen) { // IE/Edge
+        document.msExitFullscreen();
+    }
+    
+    // Always clean up our custom fullscreen as well
+    fullscreenView.classList.add('hidden');
+    commentsPanel.classList.remove('open');
+    fsVideo.pause();
+    document.body.classList.remove('fullscreen-mode');
+});
     </script>
 </body>
 
